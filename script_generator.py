@@ -15,6 +15,9 @@ def generate_script(movie_name: str, frame_descriptions: list, style: str = "悬
     if not frame_descriptions:
         raise Exception("帧描述列表为空，无法生成文案")
 
+    print(f"[DEBUG] 传入的 frame_descriptions 数量: {len(frame_descriptions)}")
+    print(f"[DEBUG] 第一条描述: {frame_descriptions[0][:100] if frame_descriptions else '空'}")
+    
     descriptions_text = "\n\n".join([
         f"【场景{i+1}】{desc}" for i, desc in enumerate(frame_descriptions)
     ])
