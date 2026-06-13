@@ -3,9 +3,9 @@ import time
 import os
 from config import SCRIPTS_DIR
 from openai import OpenAI, RateLimitError
-from config import ZHIPU_API_KEY, ZHIPU_BASE_URL
+from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL
 
-client = OpenAI(api_key=ZHIPU_API_KEY, base_url=ZHIPU_BASE_URL)
+client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
 def generate_script(movie_name: str, frame_descriptions: list, style: str = "悬疑", max_retries=10) -> str:
     """
@@ -44,7 +44,7 @@ def generate_script(movie_name: str, frame_descriptions: list, style: str = "悬
         try:
             #print(f"  调用 API 生成文案 (尝试 {attempt + 1}/{max_retries})...")
             response = client.chat.completions.create(
-                model="glm-4.7-flash",
+                model="deepseek-v4-flash",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.8,
                 max_tokens=2000

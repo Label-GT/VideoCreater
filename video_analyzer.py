@@ -49,7 +49,7 @@ def analyze_single_frame(frame_path: str, max_retries=5) -> str:
             else:
                 raise e
 
-def analyze_frames_batch(frame_paths: list, sample_rate: float = 0.3) -> list:
+def analyze_frames_batch(frame_paths: list, sample_rate: float = 0.3, delay=3) -> list:
     """
     批量分析帧，sample_rate 是采样率（避免token消耗过快）
     返回每个帧的描述列表
@@ -66,5 +66,9 @@ def analyze_frames_batch(frame_paths: list, sample_rate: float = 0.3) -> list:
         print(f"分析帧 {i+1}/{len(sampled_frames)}: {frame_path}")
         desc = analyze_single_frame(frame_path)
         descriptions.append(desc)
+
+        # 每帧之间强制等待3秒，避免触发限流
+        if i < len(sampled_frames) - 1:
+            time.sleep(delay)
     
     return descriptions
