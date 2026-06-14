@@ -5,7 +5,12 @@ from config import FRAMES_DIR, FRAME_INTERVAL
 from scenedetect import open_video, SceneManager
 from scenedetect.detectors import ContentDetector
 
-def extract_frames(video_path: str, output_dir: str = None, 
+def extract_frames(video_path: str, output_dir: str = None, interval: int = FRAME_INTERVAL) -> list:
+    # 临时禁用场景检测
+    print("  使用固定间隔抽帧...")
+    return extract_frames_interval(video_path, output_dir, interval)
+
+def extract_frames_SCENE(video_path: str, output_dir: str = None, 
                    interval: int = FRAME_INTERVAL, max_frames: int = 30) -> list:
     """
     基于场景检测提取关键帧，但限制最大帧数
@@ -54,14 +59,45 @@ def extract_frames(video_path: str, output_dir: str = None,
     return frame_paths
 
 def extract_frames_interval(video_path: str, output_dir: str, interval: int) -> list:
-    """
-    固定间隔抽帧（备用方案）
-    """
+    if output_dir is None:
+        video_name = os.path.splitext(os.path.basename(video_path))[0]
+        output_dir = os.path.join(FRAMES_DIR, video_name)
+    
+    os.makedirs(output_dir, exist_ok=True)
+
     pattern = os.path.join(output_dir, "frame_%04d.png")
     cmd = ["ffmpeg", "-i", video_path, "-vf", f"fps=1/{interval}", pattern, "-y"]
-    subprocess.run(cmd, check=True, capture_output=True)
     
-    frames = sorted([os.path.join(output_dir, f) for f in os.listdir(output_dir) if f.endswith(".png")])
+    print(f"  执行抽帧命令: {' '.join(cmd)}")
+    
+    # 使用 Popen 避免卡死
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=subprocess.CREATE_NO_WINDOW
+    )
+    
+    try:
+        stdout, stderr = process.communicate(timeout=120)
+        print(f"  FFmpeg 返回码: {process.returncode}")
+        
+        if process.returncode != 0:
+            print(f"  FFmpeg 错误: {stderr.decode()[:500]}")
+            return []
+            
+    except subprocess.TimeoutExpired:
+        process.kill()
+        print("  FFmpeg 抽帧超时（120秒）")
+        return []
+    
+    # 获取生成的帧文件列表
+    frames = []
+    if os.path.exists(output_dir):
+        frames = sorted([os.path.join(output_dir, f) for f in os.listdir(output_dir) 
+                        if f.endswith(".png")])
+    
+    print(f"  固定间隔抽帧完成，共 {len(frames)} 帧")
     return frames
 
 def get_video_duration(video_path: str) -> float:
@@ -86,3 +122,21 @@ def get_video_info(video_path: str) -> dict:
         "duration": get_video_duration(video_path),
         "codec": video_stream.get("codec_name", "unknown")
     }
+
+def run_ffmpeg(cmd, timeout=60):
+    """运行 FFmpeg 命令，避免卡死"""
+    print(f"执行: {' '.join(cmd)}")
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=subprocess.CREATE_NO_WINDOW
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+        print(f"返回码: {process.returncode}")
+        return process.returncode, stdout, stderr
+    except subprocess.TimeoutExpired:
+        process.kill()
+        print("命令超时")
+        return -1, b'', b'Timeout'

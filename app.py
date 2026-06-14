@@ -1,3 +1,11 @@
+# ========== 修复 Windows asyncio 问题 ==========
+import asyncio
+import sys
+
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+# =============================================
+
 import os
 os.environ['GRADIO_TEMP_DIR'] = './inputs'
 import gradio as gr
@@ -116,4 +124,4 @@ def create_ui():
 
 if __name__ == "__main__":
     demo = create_ui()
-    demo.launch(server_name="127.0.0.1", server_port=7860, share=False)
+    demo.launch(server_name="127.0.0.1", server_port=7861, share=False)
