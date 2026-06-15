@@ -1,177 +1,98 @@
-from moviepy.editor import VideoFileClip, AudioFileClip, CompositeVideoClip, TextClip, concatenate_videoclips, ImageClip
-from moviepy.audio.AudioClip import concatenate_audioclips
-
 import os
-from config import VIDEO_DIR
-from moviepy.video.tools.subtitles import SubtitlesClip
-import re
-from moviepy.tools import cvsecs
+import subprocess
+import json
+from moviepy import *
+from moviepy.video.io.VideoFileClip import VideoFileClip
+from moviepy.audio.io.AudioFileClip import AudioFileClip
+from moviepy.video.compositing.concatenate import concatenate_videoclips
+from moviepy.video.VideoClip import ImageClip
+from moviepy.audio.AudioClip import CompositeAudioClip
+from config import VIDEO_DIR, SUBTITLE_DIR, VIDEO_FPS, VIDEO_CODEC, AUDIO_CODEC
 
-def add_subtitle_to_video(video_clip, subtitle_path, fontsize=30, color='white',
-                          stroke_color='black', stroke_width=1):
-    """添加字幕到视频（手动解析，绕过编码问题）"""
-    # 1. 用 UTF-8 读取文件
-    with open(subtitle_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    # 2. 手动解析 SRT
-    times_texts = []
-    current_times = None
-    current_text = ""
-    
-    for line in content.splitlines():
-        times = re.findall("([0-9]*:[0-9]*:[0-9]*,[0-9]*)", line)
-        if times:
-            current_times = [cvsecs(t) for t in times]
-        elif line.strip() == '' and current_times is not None:
-            times_texts.append((current_times, current_text.strip('\n')))
-            current_times, current_text = None, ""
-        elif current_times is not None:
-            current_text += line + '\n'
-    
-    # 3. 传入解析结果
-    generator = lambda txt: TextClip(
-        txt, font='SimHei', fontsize=fontsize, color=color,
-        stroke_color=stroke_color, stroke_width=stroke_width,
-        method='caption'
-    )
-    subtitles = SubtitlesClip(times_texts, generator)  # 传列表，不传路径
-    
-    return CompositeVideoClip([video_clip, subtitles.set_position(('center', 'bottom'))])
+def format_time(seconds: float) -> str:
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
-def compose_video(video_path: str, voice_path: str, subtitle_path: str, 
-                  movie_name: str, bgm_path: str = None) -> str:
-    """
-    合成最终视频
-    video_path: 原始视频路径
-    voice_path: 配音路径
-    subtitle_path: 字幕路径
-    movie_name: 电影名称（用于输出文件名）
-    bgm_path: 背景音乐路径（可选）
-    """
-    os.makedirs(VIDEO_DIR, exist_ok=True)
-    output_path = os.path.join(VIDEO_DIR, f"{movie_name}_final.mp4")
+def generate_srt(scripts: list, voice_durations: list, movie_name: str) -> str:
+    """生成 SRT 字幕文件"""
+    srt_content = ""
+    current_time = 0.0
     
-    print("加载视频...")
-    video = VideoFileClip(video_path)
+    for i, (script, duration) in enumerate(zip(scripts, voice_durations)):
+        start_time = current_time
+        end_time = current_time + duration
+        
+        srt_content += f"{i+1}\n"
+        srt_content += f"{format_time(start_time)} --> {format_time(end_time)}\n"
+        srt_content += f"{script['script']}\n\n"
+        
+        current_time = end_time
     
-    print("添加配音...")
-    audio = AudioFileClip(voice_path)
+    subtitle_path = os.path.join(SUBTITLE_DIR, f"{movie_name}.srt")
+    with open(subtitle_path, 'w', encoding='utf-8') as f:
+        f.write(srt_content)
     
-    # 如果配音比视频短，循环视频或裁剪；这里简单裁剪到配音长度
-    if audio.duration < video.duration:
-        video = video.subclip(0, audio.duration)
+    print(f"  字幕已保存: {subtitle_path}")
+    return subtitle_path
+
+def add_subtitle_ffmpeg(video_path: str, subtitle_path: str, output_path: str) -> str:
+    """使用 FFmpeg 添加硬字幕"""
+    cmd = [
+        "ffmpeg", "-i", video_path,
+        "-vf", f"subtitles={subtitle_path}:force_style='FontName=SimHei,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1'",
+        "-c:a", "copy",
+        output_path, "-y"
+    ]
     
-    video = video.set_audio(audio)
-    
-    print("添加字幕...")
-    #video_with_subs = add_subtitle_to_video(video, subtitle_path)
-    print("跳过字幕添加...")
-    video_with_subs = video
-    
-    # 可选：添加背景音乐（降低音量作为背景）
-    if bgm_path and os.path.exists(bgm_path):
-        bgm = AudioFileClip(bgm_path).volumex(0.3)
-        # 循环BGM到视频长度
-        bgm = bgm.loop(duration=audio.duration)
-        final_audio = CompositeAudioClip([audio, bgm])
-        video_with_subs = video_with_subs.set_audio(final_audio)
-    
-    print("导出视频...")
-    video_with_subs.write_videofile(output_path, fps=24, codec='libx264', audio_codec='aac')
-    
-    # 关闭资源
-    video.close()
-    audio.close()
-    if bgm_path:
-        bgm.close()
-    video_with_subs.close()
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"  FFmpeg 字幕添加失败: {result.stderr[:200]}")
+        return video_path
     
     return output_path
 
-def compose_video_by_scenes(video_path: str, segments: list, voice_paths: list, movie_name: str) -> str:
-    """按场景裁剪并拼接视频"""
-    
-    video = VideoFileClip(video_path)
-    video_clips = []
-    
-    for i, segment in enumerate(segments):
-        start = segment['start']
-        end = segment['end']
-        
-        # 确保时间在有效范围内
-        start = max(0, min(start, video.duration - 0.5))
-        end = min(end, video.duration)
-        
-        if end > start:
-            clip = video.subclip(start, end)
-            video_clips.append(clip)
-            print(f"  裁剪场景 {i+1}: {start:.1f}s -> {end:.1f}s")
-    
-    if not video_clips:
-        # 回退到完整视频
-        video_clips = [video.subclip(0, min(video.duration, 60))]
-    
-    # 合并视频片段
-    final_video = concatenate_videoclips(video_clips) if len(video_clips) > 1 else video_clips[0]
-    
-    # 合并配音
-    audio_clips = [AudioFileClip(p) for p in voice_paths if os.path.exists(p)]
-    if audio_clips:
-        final_audio = concatenate_audioclips(audio_clips)
-        final_video = final_video.set_audio(final_audio)
-    
-    output_path = os.path.join(VIDEO_DIR, f"{movie_name}_sync.mp4")
-    final_video.write_videofile(output_path, fps=24, codec='libx264', audio_codec='aac')
-    
-    video.close()
-    final_video.close()
-    
-    return output_path
-
-def compose_sync_video(video_path: str, scenes: list, voice_paths: list, movie_name: str) -> str:
-    """
-    按场景裁剪，定格最后一帧，保证配音完整播放
-    """
+def compose_sync_video(video_path: str, scenes: list, scripts: list, voice_paths: list, voice_durations: list, movie_name: str) -> str:
+    """合成最终视频（定格适配）"""
+    print("  加载原视频...")
     video = VideoFileClip(video_path)
     video_clips = []
     audio_clips = []
     
-    for i, scene in enumerate(scenes):
-        voice_path = voice_paths[i]
-        voice_duration = get_audio_duration(voice_path)
+    for i, (scene, script, voice_path, voice_duration) in enumerate(zip(scenes, scripts, voice_paths, voice_durations)):
         scene_start = scene['start']
         scene_end = scene['end']
         scene_duration = scene_end - scene_start
         
+        print(f"  处理场景 {i+1}: 原{scene_duration:.1f}s → 配音{voice_duration:.1f}s")
+        
         if voice_duration <= scene_duration:
-            # 配音短：直接裁剪场景，不需要定格
-            scene_clip = video.subclip(scene_start, scene_start + voice_duration)
+            # 配音短：裁剪场景
+            scene_clip = video.subclipped(scene_start, scene_start + voice_duration)
         else:
-            # 配音长：正常播放场景 + 最后一帧定格
-            # 先取完整场景
-            scene_clip = video.subclip(scene_start, scene_end)
-            # 获取最后一帧
+            # 配音长：正常播放 + 定格最后一帧
+            scene_clip = video.subclipped(scene_start, scene_end)
             last_frame = scene_clip.get_frame(scene_clip.duration - 0.04)
-            # 创建定格画面（填补剩余时间）
             freeze_duration = voice_duration - scene_duration
             freeze_clip = ImageClip(last_frame, duration=freeze_duration)
-            # 拼接：正常场景 + 定格画面
             scene_clip = concatenate_videoclips([scene_clip, freeze_clip])
+            print(f"    定格 {freeze_duration:.1f}秒")
         
         video_clips.append(scene_clip)
         audio_clips.append(AudioFileClip(voice_path))
-        
-        print(f"  场景{i+1}: 原{scene_duration:.1f}s → 配音{voice_duration:.1f}s" + 
-              (f" (定格{voice_duration-scene_duration:.1f}s)" if voice_duration > scene_duration else ""))
     
-    # 拼接所有场景
+    print("  拼接视频片段...")
     final_video = concatenate_videoclips(video_clips)
-    final_audio = concatenate_audioclips(audio_clips)
-    final_video = final_video.set_audio(final_audio)
     
-    output_path = os.path.join(VIDEO_DIR, f"{movie_name}_final.mp4")
-    final_video.write_videofile(output_path, fps=24, codec='libx264', audio_codec='aac')
+    print("  拼接音频...")
+    final_audio = CompositeAudioClip(audio_clips)
+    final_video = final_video.with_audio(final_audio)
+    
+    # 输出无字幕版本
+    temp_output = os.path.join(VIDEO_DIR, f"{movie_name}_temp.mp4")
+    final_video.write_videofile(temp_output, fps=VIDEO_FPS, codec=VIDEO_CODEC, audio_codec=AUDIO_CODEC)
     
     # 清理资源
     video.close()
@@ -181,10 +102,16 @@ def compose_sync_video(video_path: str, scenes: list, voice_paths: list, movie_n
     for audio in audio_clips:
         audio.close()
     
-    return output_path
-
-def get_audio_duration(audio_path: str) -> float:
-    """获取音频时长（秒）"""
-    from pydub import AudioSegment
-    audio = AudioSegment.from_mp3(audio_path)
-    return len(audio) / 1000.0
+    # 生成字幕
+    subtitle_path = generate_srt(scripts, voice_durations, movie_name)
+    
+    # 添加字幕
+    output_path = os.path.join(VIDEO_DIR, f"{movie_name}_final.mp4")
+    final_path = add_subtitle_ffmpeg(temp_output, subtitle_path, output_path)
+    
+    # 删除临时文件
+    if os.path.exists(temp_output) and temp_output != final_path:
+        os.remove(temp_output)
+    
+    print(f"  视频已保存: {final_path}")
+    return final_path

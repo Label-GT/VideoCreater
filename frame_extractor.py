@@ -1,34 +1,88 @@
-import subprocess
 import os
+import subprocess
 import json
-from config import FRAMES_DIR, FRAME_INTERVAL
 from scenedetect import open_video, SceneManager
 from scenedetect.detectors import ContentDetector
+from config import FRAMES_DIR, SCENES_DIR, SCENE_THRESHOLD, MAX_SCENES, MIN_SCENE_DURATION
 
-def extract_frames(video_path: str, output_dir: str = None, interval: int = FRAME_INTERVAL) -> tuple:
+def get_video_info(video_path: str) -> dict:
+    """获取视频信息"""
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+           "-show_entries", "stream=width,height,codec_name,r_frame_rate",
+           "-of", "json", video_path]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    data = json.loads(result.stdout)
+    stream = data.get("streams", [{}])[0]
     
-    return extract_frames_by_scenes(video_path, output_dir, interval,20)
+    # 获取时长
+    duration_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1", video_path]
+    duration_result = subprocess.run(duration_cmd, capture_output=True, text=True)
+    duration = float(duration_result.stdout.strip())
+    
+    # 解析帧率
+    r_frame_rate = stream.get("r_frame_rate", "0/1")
+    if "/" in r_frame_rate:
+        num, den = r_frame_rate.split("/")
+        fps = float(num) / float(den) if float(den) != 0 else 0
+    else:
+        fps = float(r_frame_rate)
+    
+    return {
+        "width": stream.get("width", 0),
+        "height": stream.get("height", 0),
+        "codec": stream.get("codec_name", "unknown"),
+        "fps": fps,
+        "duration": duration
+    }
 
-from scene_detector import detect_scenes, filter_scenes
+def detect_scenes(video_path: str, movie_name: str) -> list:
+    """检测场景并保存到文件"""
+    print("  正在检测场景切换...")
+    
+    video = open_video(video_path)
+    scene_manager = SceneManager()
+    scene_manager.add_detector(ContentDetector(threshold=SCENE_THRESHOLD))
+    scene_manager.detect_scenes(video)
+    scene_list = scene_manager.get_scene_list()
+    
+    scenes = []
+    for scene in scene_list:
+        start = scene[0].get_seconds()
+        end = scene[1].get_seconds()
+        duration = end - start
+        if duration >= MIN_SCENE_DURATION:
+            scenes.append({
+                'index': len(scenes),
+                'start': start,
+                'end': end,
+                'duration': duration,
+                'center': (start + end) / 2
+            })
+    
+    print(f"  检测到 {len(scenes)} 个场景")
+    
+    # 限制场景数量
+    if len(scenes) > MAX_SCENES:
+        print(f"  场景过多，均匀采样至 {MAX_SCENES} 个")
+        step = len(scenes) / MAX_SCENES
+        scenes = [scenes[int(i * step)] for i in range(MAX_SCENES)]
+    
+    # 保存场景信息
+    scenes_path = os.path.join(SCENES_DIR, f"{movie_name}_scenes.json")
+    with open(scenes_path, 'w', encoding='utf-8') as f:
+        json.dump(scenes, f, indent=2, ensure_ascii=False)
+    print(f"  场景信息已保存: {scenes_path}")
+    
+    return scenes
 
-def extract_frames_by_scenes(video_path: str, output_dir: str = None, 
-                              threshold: float = 30.0, max_scenes: int = 25) -> list:
-    """基于场景检测提取关键帧"""
-    if output_dir is None:
-        video_name = os.path.splitext(os.path.basename(video_path))[0]
-        output_dir = os.path.join(FRAMES_DIR, video_name)
-    
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # 1. 检测场景
-    scenes = detect_scenes(video_path, threshold=threshold)
-    scenes = filter_scenes(scenes, min_duration=1.0, max_scenes=max_scenes)
-    
-    # 2. 为每个场景提取中心帧
+def extract_keyframes(video_path: str, scenes: list, movie_name: str) -> list:
+    """提取每个场景的关键帧"""
     frames = []
-    for i, scene in enumerate(scenes):
+    
+    for scene in scenes:
         timestamp = scene['center']
-        output_path = os.path.join(output_dir, f"scene_{i+1:04d}_{int(timestamp)}s.png")
+        output_path = os.path.join(FRAMES_DIR, f"{movie_name}_scene_{scene['index']:04d}.png")
         
         cmd = ["ffmpeg", "-ss", str(timestamp), "-i", video_path,
                "-vframes", "1", "-q:v", "2", output_path, "-y"]
@@ -36,79 +90,12 @@ def extract_frames_by_scenes(video_path: str, output_dir: str = None,
         
         frames.append({
             'path': output_path,
+            'scene_index': scene['index'],
             'timestamp': timestamp,
-            'time_str': f"{int(timestamp//60):02d}:{int(timestamp%60):02d}",
-            'scene_start': scene['start'],
-            'scene_end': scene['end'],
-            'scene_duration': scene['duration']
+            'time_str': f"{int(timestamp//60):02d}:{int(timestamp%60):02d}"
         })
-    
-    print(f"  提取 {len(frames)} 个场景关键帧")
-    return frames, scenes
-
-def extract_frames_interval(video_path: str, output_dir: str, interval: int) -> list:
-    # 临时禁用场景检测
-    print("  使用固定间隔抽帧...")
-    if output_dir is None:
-        video_name = os.path.splitext(os.path.basename(video_path))[0]
-        output_dir = os.path.join(FRAMES_DIR, video_name)
-    
-    os.makedirs(output_dir, exist_ok=True)
-
-    pattern = os.path.join(output_dir, "frame_%04d.png")
-    cmd = ["ffmpeg", "-i", video_path, "-vf", f"fps=1/{interval}", pattern, "-y"]
-    
-    print(f"  执行抽帧命令: {' '.join(cmd)}")
-    
-    # 使用 Popen 避免卡死
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        creationflags=subprocess.CREATE_NO_WINDOW
-    )
-    
-    try:
-        stdout, stderr = process.communicate(timeout=120)
-        print(f"  FFmpeg 返回码: {process.returncode}")
         
-        if process.returncode != 0:
-            print(f"  FFmpeg 错误: {stderr.decode()[:500]}")
-            return []
-            
-    except subprocess.TimeoutExpired:
-        process.kill()
-        print("  FFmpeg 抽帧超时（120秒）")
-        return []
+        print(f"  提取帧 {scene['index']+1}: {output_path}")
     
-    # 获取生成的帧文件列表
-    frames = []
-    if os.path.exists(output_dir):
-        frames = sorted([os.path.join(output_dir, f) for f in os.listdir(output_dir) 
-                        if f.endswith(".png")])
-    
-    print(f"  固定间隔抽帧完成，共 {len(frames)} 帧")
+    print(f"  共提取 {len(frames)} 个关键帧")
     return frames
-
-def get_video_duration(video_path: str) -> float:
-    """获取视频时长（秒）"""
-    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", 
-           "-of", "default=noprint_wrappers=1:nokey=1", video_path]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    return float(result.stdout.strip())
-
-def get_video_info(video_path: str) -> dict:
-    """获取视频详细信息"""
-    cmd = ["ffprobe", "-v", "error", "-show_entries", 
-           "stream=width,height,codec_name,r_frame_rate,codec_type", 
-           "-of", "json", video_path]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    data = json.loads(result.stdout)
-    print(json.dumps(data, indent=2, ensure_ascii=False))
-    video_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), {})
-    return {
-        "width": video_stream.get("width", 0),
-        "height": video_stream.get("height", 0),
-        "duration": get_video_duration(video_path),
-        "codec": video_stream.get("codec_name", "unknown")
-    }
