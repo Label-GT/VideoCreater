@@ -9,8 +9,8 @@ from pathlib import Path
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from frame_extractor import extract_audio, extract_frames, get_video_info
-from video_analyzer import analyze_frames_batch
+from frame_extractor import extract_frames, get_video_info
+from video_analyzer import analyze_scene_batch
 from script_generator import generate_script, save_script
 from tts_generator import process_tts
 from video_composer import compose_video
@@ -72,7 +72,7 @@ def main():
     # 4. 分析画面
     print("\n[3/7] 分析画面内容（此步骤耗时较长）...")
     step_start = time.time()
-    descriptions = analyze_frames_batch(frames, sample_rate=0.3)
+    descriptions = analyze_scene_batch(frames, frames)
     print(f"[3/7] 分析画面内容... 耗时: {time.time() - step_start:.1f}秒")
     
     # 5. 生成解说文案

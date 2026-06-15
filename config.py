@@ -6,6 +6,8 @@ load_dotenv()
 # API配置
 ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY")
 ZHIPU_BASE_URL = os.getenv("ZHIPU_BASE_URL", "https://api.zhipu.com")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
 # 路径配置
 INPUT_DIR = "./inputs"

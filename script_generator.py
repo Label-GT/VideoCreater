@@ -3,9 +3,9 @@ import time
 import os
 from config import SCRIPTS_DIR
 from openai import OpenAI, RateLimitError
-from config import ZHIPU_API_KEY, ZHIPU_BASE_URL
+from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL
 
-client = OpenAI(api_key=ZHIPU_API_KEY, base_url=ZHIPU_BASE_URL)
+client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
 def generate_script(movie_name: str, frame_descriptions: list, style: str = "悬疑", max_retries=10) -> str:
     """
@@ -44,7 +44,7 @@ def generate_script(movie_name: str, frame_descriptions: list, style: str = "悬
         try:
             #print(f"  调用 API 生成文案 (尝试 {attempt + 1}/{max_retries})...")
             response = client.chat.completions.create(
-                model="glm-4.7-flash",
+                model="deepseek-v4-flash",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.8,
                 max_tokens=2000
@@ -86,3 +86,84 @@ def save_script(script: str, movie_name: str) -> str:
         raise Exception(f"文案文件保存失败：{output_path} 为空")
 
     return output_path
+
+def generate_script_by_scenes(movie_name: str, scene_analyses: list, style: str = "悬疑", max_retries=10) -> list:
+    """为每个场景生成解说词"""
+    
+    if not scene_analyses:
+        raise ValueError("场景分析列表为空，无法生成文案")
+    
+    # 构建场景描述
+    scenes_text = "\n".join([
+        f"[{a['time_str']}] 场景{a['scene_id']+1}: {a['description']}"
+        for a in scene_analyses
+    ])
+    
+    prompt = f"""
+你是{style}风格的解说博主。
+
+电影《{movie_name}》的场景分析：
+{scenes_text}
+
+请为每个场景生成一句解说词。
+输出格式（每行）：
+[时间] 解说词
+
+要求：
+1. 解说词要与场景内容匹配
+2. 语言口语化，有感染力
+3. 直接输出，不要解释
+"""
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model="deepseek-v4-flash",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.8
+            )
+            
+            # 验证响应格式
+            if not response.choices or len(response.choices) == 0:
+                raise Exception("API返回的响应中没有choices")
+            
+            if not response.choices[0].message or not response.choices[0].message.content:
+                raise Exception("API返回的响应中没有message.content")
+            
+            content = response.choices[0].message.content
+            
+            # 解析并合并场景信息
+            segments = []
+            lines = content.strip().split('\n')
+            
+            for i, line in enumerate(lines):
+                if line.startswith('[') and i < len(scene_analyses):
+                    time_str = line.split(']')[0][1:]
+                    text = line.split(']')[1].strip()
+                    segments.append({
+                        'scene_id': i,
+                        'time_str': time_str,
+                        'text': text,
+                        'start': scene_analyses[i]['start'],
+                        'end': scene_analyses[i]['end']
+                    })
+            
+            if len(segments) != len(scene_analyses):
+                print(f"  警告：生成的解说词数量({len(segments)})与场景数量({len(scene_analyses)})不匹配")
+            
+            return segments
+        except RateLimitError as e:
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 3  # 3, 6, 9, 12 秒
+                print(f"  文案生成限流，{wait_time}秒后重试 (尝试 {attempt + 1}/{max_retries})...")
+                time.sleep(wait_time)
+            else:
+                raise e
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait_time = 5
+                print(f"  生成失败：{e}，{wait_time}秒后重试...")
+                time.sleep(wait_time)
+            else:
+                raise Exception(f"文案生成失败：{e}")
+    raise Exception("文案生成失败，已达最大重试次数")
+    
