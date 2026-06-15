@@ -16,10 +16,10 @@ from pathlib import Path
 import shutil
 # 导入你的处理模块
 from frame_extractor import get_video_info, extract_frames
-from video_analyzer import analyze_frames_batch
-from script_generator import generate_script, save_script
-from tts_generator import process_tts
-from video_composer import compose_video
+from video_analyzer import analyze_scene_batch
+from script_generator import generate_script_by_scenes, save_script
+from tts_generator import process_tts, text_to_speech
+from video_composer import compose_sync_video
 from config import INPUT_DIR, OUTPUT_DIR
 
 # 确保目录存在
@@ -47,25 +47,28 @@ def process_video(video_file, style, progress=gr.Progress()):
         
         # 2. 提取关键帧
         progress(0.1, desc="提取关键帧...")
-        frames = extract_frames(video_path, interval=30)
+        frames, scenes = extract_frames(video_path, interval=30)
         print(f"共提取 {len(frames)} 个关键帧")
         
         # 3. 分析画面内容
         progress(0.2, desc="分析画面内容（可能需要2-3分钟）...")
-        descriptions = analyze_frames_batch(frames, sample_rate=0.2)
+        analyses = analyze_scene_batch(scenes, frames)
         
         # 4. 生成解说文案
         progress(0.6, desc="生成解说文案...")
-        script = generate_script(movie_name, descriptions, style)
-        script_path = save_script(script, movie_name)
+        segments = generate_script_by_scenes(movie_name, analyses, style)
         
         # 5. 语音合成 + 字幕
         progress(0.7, desc="语音合成...")
-        voice_path, subtitle_path = process_tts(script, movie_name)
+        voice_paths = []
+        for seg in segments:
+            voice_path = f"./outputs/voice/{movie_name}_scene_{seg['scene_id']}.mp3"
+            text_to_speech(seg['text'], voice_path)
+            voice_paths.append(voice_path)
         
         # 6. 合成最终视频
         progress(0.85, desc="合成视频...")
-        output_path = compose_video(video_path, voice_path, subtitle_path, movie_name)
+        output_path = compose_sync_video(video_path, segments, voice_paths, movie_name)
         
         progress(1.0, desc="完成！")
         

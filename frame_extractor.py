@@ -5,17 +5,15 @@ from config import FRAMES_DIR, FRAME_INTERVAL
 from scenedetect import open_video, SceneManager
 from scenedetect.detectors import ContentDetector
 
-def extract_frames(video_path: str, output_dir: str = None, interval: int = FRAME_INTERVAL) -> list:
-    # 临时禁用场景检测
-    print("  使用固定间隔抽帧...")
-    return extract_frames_interval(video_path, output_dir, interval)
+def extract_frames(video_path: str, output_dir: str = None, interval: int = FRAME_INTERVAL) -> tuple:
+    
+    return extract_frames_by_scenes(video_path, output_dir, interval,20)
 
-def extract_frames_SCENE(video_path: str, output_dir: str = None, 
-                   interval: int = FRAME_INTERVAL, max_frames: int = 30) -> list:
-    """
-    基于场景检测提取关键帧，但限制最大帧数
-    max_frames: 最多提取多少帧（默认30）
-    """
+from scene_detector import detect_scenes, filter_scenes
+
+def extract_frames_by_scenes(video_path: str, output_dir: str = None, 
+                              threshold: float = 30.0, max_scenes: int = 25) -> list:
+    """基于场景检测提取关键帧"""
     if output_dir is None:
         video_name = os.path.splitext(os.path.basename(video_path))[0]
         output_dir = os.path.join(FRAMES_DIR, video_name)
@@ -23,42 +21,34 @@ def extract_frames_SCENE(video_path: str, output_dir: str = None,
     os.makedirs(output_dir, exist_ok=True)
     
     # 1. 检测场景
-    print("  正在检测场景切换...")
-    video = open_video(video_path)
-    scene_manager = SceneManager()
-    scene_manager.add_detector(ContentDetector(threshold=40.0))
-    scene_manager.detect_scenes(video)
-    scene_list = scene_manager.get_scene_list()
+    scenes = detect_scenes(video_path, threshold=threshold)
+    scenes = filter_scenes(scenes, min_duration=1.0, max_scenes=max_scenes)
     
-    print(f"  检测到 {len(scene_list)} 个场景")
-    
-    if not scene_list:
-        return extract_frames_interval(video_path, output_dir, interval)
-    
-    # 2. 如果场景数超过 max_frames，均匀采样
-    if len(scene_list) > max_frames:
-        print(f"  场景过多，均匀采样至 {max_frames} 个关键帧")
-        step = len(scene_list) / max_frames
-        indices = [int(i * step) for i in range(max_frames)]
-        sampled_scenes = [scene_list[i] for i in indices]
-    else:
-        sampled_scenes = scene_list
-    
-    # 3. 提取帧
-    frame_paths = []
-    for i, scene in enumerate(sampled_scenes):
-        center_time = (scene[0].get_seconds() + scene[1].get_seconds()) / 2
-        output_path = os.path.join(output_dir, f"frame_{i+1:04d}_{int(center_time)}s.png")
+    # 2. 为每个场景提取中心帧
+    frames = []
+    for i, scene in enumerate(scenes):
+        timestamp = scene['center']
+        output_path = os.path.join(output_dir, f"scene_{i+1:04d}_{int(timestamp)}s.png")
         
-        cmd = ["ffmpeg", "-ss", str(center_time), "-i", video_path,
+        cmd = ["ffmpeg", "-ss", str(timestamp), "-i", video_path,
                "-vframes", "1", "-q:v", "2", output_path, "-y"]
         subprocess.run(cmd, check=True, capture_output=True)
-        frame_paths.append(output_path)
+        
+        frames.append({
+            'path': output_path,
+            'timestamp': timestamp,
+            'time_str': f"{int(timestamp//60):02d}:{int(timestamp%60):02d}",
+            'scene_start': scene['start'],
+            'scene_end': scene['end'],
+            'scene_duration': scene['duration']
+        })
     
-    print(f"  共提取 {len(frame_paths)} 个关键帧")
-    return frame_paths
+    print(f"  提取 {len(frames)} 个场景关键帧")
+    return frames, scenes
 
 def extract_frames_interval(video_path: str, output_dir: str, interval: int) -> list:
+    # 临时禁用场景检测
+    print("  使用固定间隔抽帧...")
     if output_dir is None:
         video_name = os.path.splitext(os.path.basename(video_path))[0]
         output_dir = os.path.join(FRAMES_DIR, video_name)
@@ -122,21 +112,3 @@ def get_video_info(video_path: str) -> dict:
         "duration": get_video_duration(video_path),
         "codec": video_stream.get("codec_name", "unknown")
     }
-
-def run_ffmpeg(cmd, timeout=60):
-    """运行 FFmpeg 命令，避免卡死"""
-    print(f"执行: {' '.join(cmd)}")
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        creationflags=subprocess.CREATE_NO_WINDOW
-    )
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-        print(f"返回码: {process.returncode}")
-        return process.returncode, stdout, stderr
-    except subprocess.TimeoutExpired:
-        process.kill()
-        print("命令超时")
-        return -1, b'', b'Timeout'
