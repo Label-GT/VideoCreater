@@ -1,5 +1,6 @@
 import base64
 import time
+import os
 import json
 from openai import OpenAI
 from config import ZHIPU_API_KEY, ZHIPU_BASE_URL, SCRIPTS_DIR
@@ -37,7 +38,7 @@ def analyze_scenes(frames: list, movie_name: str, max_retries: int = 6) -> list:
                         ]
                     }],
                     temperature=0.7,
-                    max_tokens=200
+                    max_tokens=500
                 )
                 
                 analyses.append({

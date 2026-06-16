@@ -10,7 +10,7 @@ def generate_scripts(analyses: list, scenes: list, style: str, movie_name: str) 
     scripts = []
     
     for i, analysis in enumerate(analyses):
-        scene = scenes[analysis['scene_index']]
+        scene = next((item for item in scenes if item["index"] == analysis['scene_index']), None)
         max_chars = int(scene['duration'] * 4)  # 每秒4个字符
         
         prompt = f"""
@@ -26,7 +26,7 @@ def generate_scripts(analyses: list, scenes: list, style: str, movie_name: str) 
             model="deepseek-v4-flash",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.8,
-            max_tokens=max_chars
+            max_tokens=500
         )
         
         script = response.choices[0].message.content.strip()

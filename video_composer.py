@@ -47,9 +47,10 @@ def add_subtitle_ffmpeg(video_path: str, subtitle_path: str, output_path: str) -
         output_path, "-y"
     ]
     
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
     if result.returncode != 0:
-        print(f"  FFmpeg 字幕添加失败: {result.stderr[:200]}")
+        error_msg = result.stderr if result.stderr else "未知错误"
+        print(f"  FFmpeg 字幕添加失败: {error_msg[:200]}")
         return video_path
     
     return output_path
@@ -70,10 +71,10 @@ def compose_sync_video(video_path: str, scenes: list, scripts: list, voice_paths
         
         if voice_duration <= scene_duration:
             # 配音短：裁剪场景
-            scene_clip = video.subclipped(scene_start, scene_start + voice_duration)
+            scene_clip = video.subclip(scene_start, scene_start + voice_duration)
         else:
             # 配音长：正常播放 + 定格最后一帧
-            scene_clip = video.subclipped(scene_start, scene_end)
+            scene_clip = video.subclip(scene_start, scene_end)
             last_frame = scene_clip.get_frame(scene_clip.duration - 0.04)
             freeze_duration = voice_duration - scene_duration
             freeze_clip = ImageClip(last_frame, duration=freeze_duration)
@@ -88,7 +89,7 @@ def compose_sync_video(video_path: str, scenes: list, scripts: list, voice_paths
     
     print("  拼接音频...")
     final_audio = CompositeAudioClip(audio_clips)
-    final_video = final_video.with_audio(final_audio)
+    final_video = final_video.set_audio(final_audio)
     
     # 输出无字幕版本
     temp_output = os.path.join(VIDEO_DIR, f"{movie_name}_temp.mp4")
