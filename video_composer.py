@@ -1,13 +1,9 @@
 import os
 import subprocess
 import json
-from moviepy import *
-from moviepy.video.io.VideoFileClip import VideoFileClip
-from moviepy.audio.io.AudioFileClip import AudioFileClip
-from moviepy.video.compositing.concatenate import concatenate_videoclips
-from moviepy.video.VideoClip import ImageClip
-from moviepy.audio.AudioClip import CompositeAudioClip
+from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips, ImageClip, concatenate_audioclips
 from config import VIDEO_DIR, SUBTITLE_DIR, VIDEO_FPS, VIDEO_CODEC, AUDIO_CODEC
+from pathlib import Path
 
 def format_time(seconds: float) -> str:
     hours = int(seconds // 3600)
@@ -32,6 +28,8 @@ def generate_srt(scripts: list, voice_durations: list, movie_name: str) -> str:
         current_time = end_time
     
     subtitle_path = os.path.join(SUBTITLE_DIR, f"{movie_name}.srt")
+    subtitle_path = Path(subtitle_path).as_posix()
+
     with open(subtitle_path, 'w', encoding='utf-8') as f:
         f.write(srt_content)
     
@@ -71,10 +69,10 @@ def compose_sync_video(video_path: str, scenes: list, scripts: list, voice_paths
         
         if voice_duration <= scene_duration:
             # 配音短：裁剪场景
-            scene_clip = video.subclip(scene_start, scene_start + voice_duration)
+            scene_clip = video.subclipped(scene_start, scene_start + voice_duration)
         else:
             # 配音长：正常播放 + 定格最后一帧
-            scene_clip = video.subclip(scene_start, scene_end)
+            scene_clip = video.subclipped(scene_start, scene_end)
             last_frame = scene_clip.get_frame(scene_clip.duration - 0.04)
             freeze_duration = voice_duration - scene_duration
             freeze_clip = ImageClip(last_frame, duration=freeze_duration)
@@ -88,11 +86,12 @@ def compose_sync_video(video_path: str, scenes: list, scripts: list, voice_paths
     final_video = concatenate_videoclips(video_clips)
     
     print("  拼接音频...")
-    final_audio = CompositeAudioClip(audio_clips)
-    final_video = final_video.set_audio(final_audio)
+    final_audio = concatenate_audioclips(audio_clips)
+    final_video = final_video.with_audio(final_audio)
     
     # 输出无字幕版本
     temp_output = os.path.join(VIDEO_DIR, f"{movie_name}_temp.mp4")
+    temp_output = Path(temp_output).as_posix()
     final_video.write_videofile(temp_output, fps=VIDEO_FPS, codec=VIDEO_CODEC, audio_codec=AUDIO_CODEC)
     
     # 清理资源
@@ -108,6 +107,7 @@ def compose_sync_video(video_path: str, scenes: list, scripts: list, voice_paths
     
     # 添加字幕
     output_path = os.path.join(VIDEO_DIR, f"{movie_name}_final.mp4")
+    output_path = Path(output_path).as_posix()
     final_path = add_subtitle_ffmpeg(temp_output, subtitle_path, output_path)
     
     # 删除临时文件

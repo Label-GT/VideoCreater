@@ -3,6 +3,7 @@ import edge_tts
 import os
 import json
 from config import TTS_VOICE, VOICE_DIR, SUBTITLE_DIR
+from pydub import AudioSegment
 
 async def text_to_speech_async(text: str, output_path: str, voice: str = TTS_VOICE):
     communicate = edge_tts.Communicate(text, voice)
@@ -16,7 +17,6 @@ def text_to_speech(text: str, output_path: str):
 
 def get_audio_duration(audio_path: str) -> float:
     """获取音频时长（秒）"""
-    from pydub import AudioSegment
     audio = AudioSegment.from_mp3(audio_path)
     return len(audio) / 1000.0
 
