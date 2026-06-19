@@ -1,82 +1,72 @@
-# ========== 修复 Windows asyncio 问题 ==========
-import asyncio
-import sys
-
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-# =============================================
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 import os
-os.environ['GRADIO_TEMP_DIR'] = './inputs'
-import gradio as gr
-import subprocess
 import sys
 import time
-from pathlib import Path
-import shutil
-# 导入你的处理模块
-from frame_extractor import get_video_info, extract_frames
-from video_analyzer import analyze_scene_batch
-from script_generator import generate_script_by_scenes, save_script
-from tts_generator import process_tts, text_to_speech
-from video_composer import compose_sync_video
-from config import INPUT_DIR, OUTPUT_DIR
+import asyncio
 
-# 确保目录存在
-os.makedirs(INPUT_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# 修复 Windows asyncio
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# 设置 Gradio 临时目录
+os.environ['GRADIO_TEMP_DIR'] = './inputs'
+
+import gradio as gr
+from pathlib import Path
+from config import INPUT_DIR, OUTPUT_DIR, VIDEO_DIR
+from frame_extractor import get_video_info, detect_scenes, extract_keyframes
+from video_analyzer import analyze_scenes
+from script_generator import generate_scripts
+from tts_generator import process_tts
+from video_composer import compose_sync_video
 
 def process_video(video_file, style, progress=gr.Progress()):
-    """
-    处理视频的主函数，供 Gradio 调用
-    """
     if video_file is None:
         return None, "请先上传视频文件"
     
     video_path = video_file
     movie_name = Path(video_path).stem
     
-    progress(0, desc="开始处理...")
-    
     try:
         # 1. 获取视频信息
-        progress(0.05, desc="获取视频信息...")
+        progress(0.02, desc="获取视频信息...")
         video_info = get_video_info(video_path)
-        print(f"视频时长: {video_info['duration']:.2f}秒")
-        print(f"分辨率: {video_info['width']}x{video_info['height']}")
+        print(f"视频时长: {video_info['duration']:.1f}秒, 分辨率: {video_info['width']}x{video_info['height']}")
         
-        # 2. 提取关键帧
-        progress(0.1, desc="提取关键帧...")
-        frames, scenes = extract_frames(video_path, interval=30)
-        print(f"共提取 {len(frames)} 个关键帧")
+        # 2. 场景检测
+        progress(0.05, desc="检测场景...")
+        scenes = detect_scenes(video_path, movie_name)
         
-        # 3. 分析画面内容
-        progress(0.2, desc="分析画面内容（可能需要2-3分钟）...")
-        analyses = analyze_scene_batch(scenes, frames)
+        # 3. 提取关键帧
+        progress(0.10, desc="提取关键帧...")
+        frames = extract_keyframes(video_path, scenes, movie_name)
         
-        # 4. 生成解说文案
-        progress(0.6, desc="生成解说文案...")
-        segments = generate_script_by_scenes(movie_name, analyses, style)
+        # 4. 分析画面
+        progress(0.20, desc="分析画面内容...")
+        analyses = analyze_scenes(frames, movie_name)
         
-        # 5. 语音合成 + 字幕
-        progress(0.7, desc="语音合成...")
-        voice_paths = []
-        for seg in segments:
-            voice_path = f"./outputs/voice/{movie_name}_scene_{seg['scene_id']}.mp3"
-            text_to_speech(seg['text'], voice_path)
-            voice_paths.append(voice_path)
+        # 5. 生成解说词
+        progress(0.50, desc="生成解说词...")
+        scripts = generate_scripts(analyses, scenes, style, movie_name)
         
-        # 6. 合成最终视频
+        # 6. 语音合成
+        progress(0.70, desc="语音合成...")
+        voice_paths, voice_durations = process_tts(scripts, movie_name)
+        
+        # 7. 合成视频
         progress(0.85, desc="合成视频...")
-        output_path = compose_sync_video(video_path, segments, voice_paths, movie_name)
+        output_path = compose_sync_video(video_path, scenes, scripts, voice_paths, voice_durations, movie_name)
         
         progress(1.0, desc="完成！")
         
-        return output_path, f"✅ 视频生成成功！"
+        total_duration = sum(voice_durations)
+        return output_path, f"✅ 视频生成成功！\n场景数: {len(scenes)}\n总时长: {total_duration:.1f}秒"
         
     except Exception as e:
         import traceback
-        error_msg = f"❌ 处理失败：{str(e)}\n{traceback.format_exc()}"
+        error_msg = f"❌ 处理失败: {str(e)}\n{traceback.format_exc()}"
         print(error_msg)
         return None, error_msg
 
@@ -85,28 +75,19 @@ def create_ui():
     with gr.Blocks(title="AI 电影解说视频生成器", theme=gr.themes.Soft()) as demo:
         gr.Markdown("""
         # 🎬 AI 电影解说视频生成器
-        ### 上传电影文件，AI 自动生成解说视频
+        ### 智能场景检测 + 音画同步
         """)
         
         with gr.Row():
-            with gr.Column(scale=1):
-                video_input = gr.Video(
-                    label="上传电影文件",
-                    sources=["upload"],
-                    format="mp4"
-                )
-                style = gr.Radio(
-                    choices=["悬疑", "热血", "幽默", "温情"],
-                    label="解说风格",
-                    value="悬疑"
-                )
-                submit_btn = gr.Button("🚀 生成解说视频", variant="primary", size="lg")
+            with gr.Column():
+                video_input = gr.Video(label="上传电影", sources=["upload"], format="mp4")
+                style = gr.Radio(choices=["悬疑", "热血", "幽默", "温情"], label="解说风格", value="悬疑")
+                submit_btn = gr.Button("🚀 生成解说视频", variant="primary")
             
-            with gr.Column(scale=1):
+            with gr.Column():
                 video_output = gr.Video(label="生成的解说视频")
-                status = gr.Textbox(label="处理状态", lines=5, interactive=False)
+                status = gr.Textbox(label="状态", lines=10, interactive=False)
         
-        # 绑定事件
         submit_btn.click(
             fn=process_video,
             inputs=[video_input, style],
@@ -127,4 +108,4 @@ def create_ui():
 
 if __name__ == "__main__":
     demo = create_ui()
-    demo.launch(server_name="127.0.0.1", server_port=7861, share=False)
+    demo.launch(server_name="127.0.0.1", server_port=7860)
