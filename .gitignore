@@ -1,2 +1,105 @@
+# ======================
+# Python
+# ======================
+
+# 字节码缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 编译文件
+*.pyd
+*.pyo
+
+# 分发文件
+dist/
+build/
+*.egg-info/
+*.egg
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ======================
+# 虚拟环境
+# ======================
+.venv/
+venv/
+ENV/
+env/
+.env/
+
+# ======================
+# IDE 和编辑器
+# ======================
+
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# PyCharm
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# 其他编辑器
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ======================
+# 项目特定
+# ======================
+
+# 环境变量和密钥
 .env
-outputs
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# 输出目录
+outputs/
+temp/
+cache/
+
+# 日志文件
+*.log
+logs/
+
+# 测试产物
+test*.mp3
+test*.mp4
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# ======================
+# 操作系统
+# ======================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ======================
+# 备份文件
+# ======================
+*.bak
+*.backup
+*~

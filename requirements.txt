@@ -1,8 +1,27 @@
+# LangChain 核心
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+
+# Web 界面
 gradio>=4.0.0
-moviepy==2.0.0.dev2
+
+# 视频处理
+moviepy==2.2.1
 scenedetect>=0.6.0
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# AI API 客户端
 openai>=1.0.0
+
+# 音频处理
 edge-tts>=6.1.0
 pydub>=0.25.0
+
+# 配置管理
 python-dotenv>=1.0.0
-opencv-python>=4.8.0
+
+# 异步任务（可选）
+celery>=5.3.0
+redis>=4.5.0

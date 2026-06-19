@@ -1,9 +1,16 @@
 # tasks.py
+"""
+Celery 异步任务模块
+使用重构后的 Pipeline
+"""
 import os
-import time
-import subprocess
+import traceback
 from pathlib import Path
+
 from celery import Celery
+
+from config import MAX_SCENES, MIN_SCENE_DURATION, SCENE_THRESHOLD, TTS_VOICE
+from core.pipeline import NarrationPipeline
 
 # Celery 配置
 REDIS_URL = 'redis://127.0.0.1:6379'
@@ -27,66 +34,54 @@ app.conf.update(
     task_soft_time_limit=1500, # 软超时 25 分钟
 )
 
-# 导入处理模块
-from frame_extractor import get_video_info, extract_frames
-from video_analyzer import analyze_frames_batch
-from script_generator import generate_script, save_script
-from tts_generator import process_tts
-from video_composer import compose_video
 
 @app.task(bind=True)
 def generate_narration(self, video_path: str, style: str, movie_name: str = None):
-    
     """
     异步生成解说视频
+    
+    Args:
+        video_path: 视频文件路径
+        style: 解说风格
+        movie_name: 电影名称（可选）
+    
+    Returns:
+        处理结果字典
     """
     if movie_name is None:
         movie_name = Path(video_path).stem
     
+    def progress_callback(current, total, message):
+        """进度回调"""
+        percent = int(current / total * 100)
+        self.update_state(
+            state='PROGRESS',
+            meta={'progress': percent, 'stage': message}
+        )
+        print(f"[{percent}%] {message}")
+    
     try:
-        # 1. 获取视频信息 (5%)
-        self.update_state(state='PROGRESS', meta={'progress': 5, 'stage': '获取视频信息'})
-        video_info = get_video_info(video_path)
-        print(f"视频时长: {video_info['duration']:.2f}秒")
-        print(f"分辨率: {video_info['width']}x{video_info['height']}")
+        # 创建 Pipeline 实例（使用 config 中的配置）
+        pipeline = NarrationPipeline(
+            style=style,
+            scene_threshold=SCENE_THRESHOLD,
+            max_scenes=MAX_SCENES,
+            min_scene_duration=MIN_SCENE_DURATION,
+            tts_voice=TTS_VOICE
+        )
         
-        # 2. 提取关键帧 (10%)
-        self.update_state(state='PROGRESS', meta={'progress': 10, 'stage': '提取关键帧'})
-        frames = extract_frames(video_path, interval=30)
-        print(f"共提取 {len(frames)} 个关键帧")
+        # 执行 Pipeline
+        result = pipeline.execute(
+            video_path=video_path,
+            movie_name=movie_name,
+            progress_callback=progress_callback
+        )
         
-        # 3. 分析画面内容 (20-60%)
-        self.update_state(state='PROGRESS', meta={'progress': 20, 'stage': '分析画面内容'})
-        descriptions = analyze_frames_batch(frames, sample_rate=0.2)
-        
-        # 4. 生成解说文案 (60-70%)
-        self.update_state(state='PROGRESS', meta={'progress': 60, 'stage': '生成解说文案'})
-        script = generate_script(movie_name, descriptions, style)
-        script_path = save_script(script, movie_name)
-        print(f"文案已保存: {script_path}")
-        
-        # 5. 语音合成 + 字幕 (70-85%)
-        self.update_state(state='PROGRESS', meta={'progress': 70, 'stage': '语音合成'})
-        voice_path, subtitle_path = process_tts(script, movie_name)
-        
-        # 6. 合成最终视频 (85-100%)
-        self.update_state(state='PROGRESS', meta={'progress': 85, 'stage': '合成视频'})
-        output_path = compose_video(video_path, voice_path, subtitle_path, movie_name)
-        
-        # 完成
-        self.update_state(state='PROGRESS', meta={'progress': 100, 'stage': '完成'})
-        
-        return {
-            'status': 'completed',
-            'output_path': output_path,
-            'movie_name': movie_name,
-            'duration': video_info['duration']
-        }
+        return result
         
     except Exception as e:
-        import traceback
         error_msg = traceback.format_exc()
-        print(f"处理失败: {error_msg}")
+        print(f"处理失败：{error_msg}")
         return {
             'status': 'failed',
             'error': str(e),

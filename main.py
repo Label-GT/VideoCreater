@@ -1,122 +1,103 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import os
+"""
+命令行交互入口
+使用重构后的 Pipeline
+"""
 import sys
-import time
 from pathlib import Path
 
-# 添加项目根目录到路径
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from frame_extractor import extract_frames, get_video_info
-from video_analyzer import analyze_scene_batch
-from script_generator import generate_script, save_script
-from tts_generator import process_tts
-from video_composer import compose_video
-from config import INPUT_DIR
-
-def ensure_dirs():
-    """确保所有必要的目录存在"""
-    dirs = [
-        "./inputs", "./outputs",
-        "./outputs/frames", "./outputs/audio", 
-        "./outputs/scripts", "./outputs/voice",
-        "./outputs/subtitles", "./outputs/videos"
-    ]
-    for d in dirs:
-        os.makedirs(d, exist_ok=True)
+from config import INPUT_DIR, MAX_SCENES, MIN_SCENE_DURATION, SCENE_THRESHOLD, TTS_VOICE
+from core.pipeline import generate_narration_video
 
 def main():
-    start_time = time.time()
-    print("=" * 50)
-    print("电影解说视频生成器 v1.0")
-    print("=" * 50)
+    """命令行交互入口"""
+    print("=" * 60)
+    print("🎬 AI 电影解说视频生成器")
+    print("=" * 60)
     
-    # 确保目录存在
-    ensure_dirs()
+    # 1. 输入电影文件路径
+    print("\n请输入电影文件路径：")
+    video_path = input("> ").strip()
     
-    # 1. 获取用户输入
-    video_path = input("请输入电影文件路径: ").strip().strip('"').strip("'")
-    if not os.path.exists(video_path):
-        print(f"错误：文件不存在 - {video_path}")
+    if not video_path:
+        # 使用默认测试文件
+        test_file = Path(INPUT_DIR) / "test.mp4"
+        if test_file.exists():
+            video_path = str(test_file)
+            print(f"使用默认文件：{video_path}")
+        else:
+            print("❌ 未提供有效的视频文件路径")
+            return
+    
+    if not Path(video_path).exists():
+        print(f"❌ 文件不存在：{video_path}")
         return
     
-    movie_name = input("请输入电影名称: ").strip()
+    # 2. 输入电影名称
+    print("\n请输入电影名称（直接回车使用文件名）：")
+    movie_name = input("> ").strip()
     if not movie_name:
         movie_name = Path(video_path).stem
     
-    style = input("请选择解说风格（悬疑/喜剧/热血/温情，默认悬疑）: ").strip()
-    if not style:
-        style = "悬疑"
+    # 3. 选择解说风格
+    print("\n选择解说风格：")
+    print("  1. 悬疑")
+    print("  2. 热血")
+    print("  3. 幽默")
+    print("  4. 温情")
     
-    print("\n" + "=" * 50)
-    print("开始处理...")
-    print("=" * 50)
+    style_map = {
+        '1': '悬疑',
+        '2': '热血',
+        '3': '幽默',
+        '4': '温情'
+    }
     
-    # 2. 获取视频信息
-    print("\n[1/7] 获取视频信息...")
-    step_start = time.time()
-    video_info = get_video_info(video_path)
-    print(f"[1/7] 获取视频信息... 耗时: {time.time() - step_start:.1f}秒")
-    print(f"视频时长: {video_info['duration']:.2f}秒")
-    print(f"分辨率: {video_info['width']}x{video_info['height']}")
+    while True:
+        choice = input("> ").strip()
+        if choice in style_map:
+            style = style_map[choice]
+            break
+        print("请输入 1-4 之间的数字")
     
-    # 3. 提取关键帧
-    print("\n[2/7] 提取关键帧...")
-    step_start = time.time()
-    frames = extract_frames(video_path, interval=30)
-    print(f"[2/7] 提取关键帧... 耗时: {time.time() - step_start:.1f}秒, 共{len(frames)}帧")
-    print(f"共提取 {len(frames)} 个关键帧")
+    # 4. 执行处理流程
+    print(f"\n🚀 开始处理：{movie_name}")
+    print(f"风格：{style}")
+    print("-" * 60)
     
-    # 4. 分析画面
-    print("\n[3/7] 分析画面内容（此步骤耗时较长）...")
-    step_start = time.time()
-    descriptions = analyze_scene_batch(frames, frames)
-    print(f"[3/7] 分析画面内容... 耗时: {time.time() - step_start:.1f}秒")
+    def progress_callback(current, total, message):
+        """进度回调"""
+        percent = int(current / total * 100)
+        print(f"[{percent:3d}%] {message}")
     
-    # 5. 生成解说文案
-    print("\n[4/7] 生成解说文案...")
-    step_start = time.time()
-    script = generate_script(movie_name, descriptions, style)
-    # 添加验证
-    if not script or len(script.strip()) == 0:
-        print("错误：生成的文案为空！")
-        return
+    result = generate_narration_video(
+        video_path=video_path,
+        style=style,
+        movie_name=movie_name,
+        scene_threshold=SCENE_THRESHOLD,
+        max_scenes=MAX_SCENES,
+        min_scene_duration=MIN_SCENE_DURATION,
+        tts_voice=TTS_VOICE,
+        progress_callback=progress_callback
+    )
+    
+    # 5. 输出结果
+    print("\n" + "=" * 60)
+    if result['status'] == 'success':
+        print(f"✅ 视频生成成功！")
+        print(f"场景数：{result['scene_count']}")
+        print(f"总时长：{result['total_duration']:.1f}秒")
+        print(f"输出路径：{result['output_path']}")
+    else:
+        print(f"❌ 处理失败：{result['error']}")
+        if 'traceback' in result:
+            print("\n详细错误：")
+            print(result['traceback'])
+    
+    print("=" * 60)
 
-    script_path = save_script(script, movie_name)
-    print(f"[4/7] 生成解说文案... 耗时: {time.time() - step_start:.1f}秒")
-    print(f"文案已保存: {script_path}")
-    print(f"\n文案预览：\n{script[:300]}...\n")
-    
-    # 6. 语音合成+字幕
-    print("\n[5/7] 语音合成及字幕生成...")
-    step_start = time.time()
-    voice_path, subtitle_path = process_tts(script, movie_name)
-    print(f"[5/7] 语音合成及字幕生成... 耗时: {time.time() - step_start:.1f}秒")
-    print(f"配音已保存: {voice_path}")
-    print(f"字幕已保存: {subtitle_path}")
-    
-    # 7. 合成最终视频
-    print("\n[6/7] 合成最终视频...")
-    # 可选：添加背景音乐，暂时不添加
-    step_start = time.time()
-    output_path = compose_video(video_path, voice_path, subtitle_path, movie_name)
-    print(f"[6/7] 合成最终视频... 耗时: {time.time() - step_start:.1f}秒")
-    print(f"视频已保存: {output_path}")
-    
-    print("\n[7/7] 完成！")
-    print(f"\n✅ 解说视频已生成：{output_path}")
-
-    total_time = time.time() - start_time
-    print(f"\n📊 统计：总耗时 {total_time:.1f}秒，共 {len(frames)} 帧")
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\n\n用户中断")
-    except Exception as e:
-        print(f"\n❌ 错误: {e}")
-        import traceback
-        traceback.print_exc()
+    main()
