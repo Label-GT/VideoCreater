@@ -118,7 +118,9 @@ class NarrationPipeline:
         self,
         video_path: str,
         movie_name: str = None,
-        progress_callback: Optional[Callable[[int, int, str], None]] = None
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        bgm_path: str = None,
+        bgm_volume: float = 0.3
     ) -> Dict[str, Any]:
         """
         执行完整的解说视频生成流程
@@ -127,6 +129,8 @@ class NarrationPipeline:
             video_path: 输入视频路径
             movie_name: 电影名称（可选，默认使用文件名）
             progress_callback: 进度回调函数 (current_step, total_steps, message)
+            bgm_path: 背景音乐文件路径（可选）
+            bgm_volume: BGM 音量比例（0-1，默认 0.3）
         
         Returns:
             生成结果，包含输出路径、统计信息等
@@ -205,7 +209,9 @@ class NarrationPipeline:
                 voice_durations=voice_durations,
                 movie_name=movie_name,
                 video_dir=self.dirs['videos'],
-                subtitle_dir=self.dirs['subtitles']
+                subtitle_dir=self.dirs['subtitles'],
+                bgm_path=bgm_path,
+                bgm_volume=bgm_volume
             )
             
             # 完成
@@ -280,6 +286,8 @@ def generate_narration_video(
     max_scenes: int = 20,
     min_scene_duration: float = 1.0,
     tts_voice: str = "zh-CN-YunxiNeural",
+    bgm_path: str = None,
+    bgm_volume: float = 0.3,
     progress_callback=None
 ) -> Dict[str, Any]:
     """
@@ -293,6 +301,8 @@ def generate_narration_video(
         max_scenes: 最大场景数
         min_scene_duration: 最小场景时长
         tts_voice: TTS 语音音色
+        bgm_path: 背景音乐文件路径（可选）
+        bgm_volume: BGM 音量比例（0-1，默认 0.3）
         progress_callback: 进度回调
     
     Returns:
@@ -305,4 +315,10 @@ def generate_narration_video(
         min_scene_duration=min_scene_duration,
         tts_voice=tts_voice
     )
-    return pipeline.execute(video_path, movie_name, progress_callback)
+    return pipeline.execute(
+        video_path, 
+        movie_name, 
+        progress_callback,
+        bgm_path=bgm_path,
+        bgm_volume=bgm_volume
+    )

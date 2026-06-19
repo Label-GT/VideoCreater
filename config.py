@@ -27,7 +27,7 @@ for d in [INPUT_DIR, OUTPUT_DIR, FRAMES_DIR, SCENES_DIR, SCRIPTS_DIR,
 
 # 场景检测参数
 SCENE_THRESHOLD = 35.0      # 场景检测阈值
-MAX_SCENES = 20              # 最大场景数
+MAX_SCENES = 20             # 最大场景数
 MIN_SCENE_DURATION = 1.0    # 最小场景时长（秒）
 
 # 语音参数
@@ -37,3 +37,6 @@ TTS_VOICE = "zh-CN-YunxiNeural"
 VIDEO_FPS = 24
 VIDEO_CODEC = "libx264"
 AUDIO_CODEC = "aac"
+
+# 背景音乐配置（技术参数）
+BGM_FADE_DURATION = 2.0  # 淡出时长（秒）

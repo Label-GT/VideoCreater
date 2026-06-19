@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import List, Dict, Any
 
-from config import AUDIO_CODEC, SUBTITLE_DIR, VIDEO_CODEC, VIDEO_DIR, VIDEO_FPS
+from config import AUDIO_CODEC, BGM_FADE_DURATION, SUBTITLE_DIR, VIDEO_CODEC, VIDEO_DIR, VIDEO_FPS
 from moviepy import (
     VideoFileClip,
     AudioFileClip,
@@ -153,7 +153,9 @@ class CompositionService:
         voice_durations: List[float],
         movie_name: str,
         video_dir: str,
-        subtitle_dir: str
+        subtitle_dir: str,
+        bgm_path: str = None,
+        bgm_volume: float = 0.3
     ) -> str:
         """
         合成最终视频（定格适配）
@@ -167,6 +169,8 @@ class CompositionService:
             movie_name: 电影名称
             video_dir: 视频输出目录
             subtitle_dir: 字幕输出目录
+            bgm_path: 背景音乐文件路径（可选）
+            bgm_volume: BGM 音量比例（0-1，默认 0.3）
         
         Returns:
             最终视频路径
@@ -244,7 +248,21 @@ class CompositionService:
         if os.path.exists(temp_output) and temp_output != final_path:
             os.remove(temp_output)
         
-        print(f"  视频已保存：{final_path}")
+        # 添加背景音乐
+        if bgm_path and os.path.exists(bgm_path):
+            print("  添加背景音乐...")
+            from services.audio_service import AudioService
+            audio_service = AudioService()
+            final_path = audio_service.add_background_music(
+                video_path=final_path,
+                bgm_path=bgm_path,
+                bgm_volume=bgm_volume,
+                fade_duration=BGM_FADE_DURATION
+            )
+            print(f"  视频已保存（含 BGM）：{final_path}")
+        else:
+            print(f"  视频已保存：{final_path}")
+        
         return final_path
 
 
@@ -257,7 +275,9 @@ def compose_sync_video(
     voice_durations: List[float],
     movie_name: str,
     video_dir: str = None,
-    subtitle_dir: str = None
+    subtitle_dir: str = None,
+    bgm_path: str = None,
+    bgm_volume: float = 0.3
 ) -> str:
     """
     合成视频（便捷函数）
@@ -271,6 +291,8 @@ def compose_sync_video(
         movie_name: 电影名称
         video_dir: 视频输出目录
         subtitle_dir: 字幕输出目录
+        bgm_path: 背景音乐文件路径（可选）
+        bgm_volume: BGM 音量比例（0-1，默认 0.3）
     
     Returns:
         最终视频路径
@@ -289,5 +311,7 @@ def compose_sync_video(
         voice_durations=voice_durations,
         movie_name=movie_name,
         video_dir=video_dir or VIDEO_DIR,
-        subtitle_dir=subtitle_dir or SUBTITLE_DIR
+        subtitle_dir=subtitle_dir or SUBTITLE_DIR,
+        bgm_path=bgm_path,
+        bgm_volume=bgm_volume
     )

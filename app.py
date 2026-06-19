@@ -19,13 +19,15 @@ from config import INPUT_DIR, MAX_SCENES, MIN_SCENE_DURATION, OUTPUT_DIR, SCENE_
 from core.pipeline import NarrationPipeline
 
 
-def process_video(video_file, style, progress=gr.Progress()):
+def process_video(video_file, style, bgm_file=None, bgm_volume=0.3, progress=gr.Progress()):
     """
     处理视频生成解说
     
     Args:
         video_file: 上传的视频文件
         style: 解说风格
+        bgm_file: 背景音乐文件（可选）
+        bgm_volume: BGM 音量（0-1，默认 0.3）
         progress: Gradio 进度对象
     
     Returns:
@@ -54,11 +56,16 @@ def process_video(video_file, style, progress=gr.Progress()):
             progress(percent, desc=message)
             print(f"[{current}/{total}] {message}")
         
+        # 准备 BGM 参数
+        bgm_path = bgm_file.name if bgm_file else None
+        
         # 执行 Pipeline
         result = pipeline.execute(
             video_path=video_path,
             movie_name=movie_name,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            bgm_path=bgm_path,
+            bgm_volume=bgm_volume
         )
         
         # 处理结果
@@ -107,6 +114,28 @@ def create_ui():
                     label="解说风格",
                     value="悬疑"
                 )
+                
+                with gr.Accordion("🎵 背景音乐设置", open=False):
+                    bgm_file = gr.File(
+                        label="上传背景音乐（可选）",
+                        file_types=[".mp3", ".wav", ".ogg", ".m4a"],
+                        value=None
+                    )
+                    
+                    bgm_volume = gr.Slider(
+                        minimum=0,
+                        maximum=1,
+                        value=0.3,
+                        step=0.05,
+                        label="背景音乐音量（0-100%，默认 30%）"
+                    )
+                    
+                    bgm_generate_btn = gr.Button(
+                        "🎵 AI 生成背景音乐（即将推出）",
+                        variant="secondary",
+                        interactive=False
+                    )
+                
                 submit_btn = gr.Button("🚀 生成解说视频", variant="primary")
             
             with gr.Column():
@@ -119,7 +148,7 @@ def create_ui():
         
         submit_btn.click(
             fn=process_video,
-            inputs=[video_input, style],
+            inputs=[video_input, style, bgm_file, bgm_volume],
             outputs=[video_output, status]
         )
         
